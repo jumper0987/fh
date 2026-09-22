@@ -17,6 +17,7 @@ import {
   X,
   ShieldCheck,
   XCircle,
+  RefreshCw,
 } from "lucide-react";
 import { supabase, TABLE, PROFILES_TABLE, AVATAR_BUCKET } from "./supabaseClient";
 import {
@@ -176,6 +177,13 @@ export default function App() {
     for (const row of data) if (row.avatar_url) map[row.student_name] = row.avatar_url;
     setAvatars(map);
   }, []);
+
+  const [refreshing, setRefreshing] = useState(false);
+  const manualRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([loadOwnProgress(name), loadLeaderboard(), loadAvatars()]);
+    setRefreshing(false);
+  }, [name, loadOwnProgress, loadLeaderboard, loadAvatars]);
 
   useEffect(() => {
     if (!name) return;
@@ -473,6 +481,9 @@ export default function App() {
             />
             <div className="fh-user-text">
               <span>{name}</span>
+              <button className="fh-user-refresh" onClick={manualRefresh} disabled={refreshing} title="Daten neu laden">
+                <RefreshCw size={12} className={refreshing ? "spin" : ""} /> aktualisieren
+              </button>
               <button className="fh-user-logout" onClick={switchUser} title="Namen ändern">
                 <LogOut size={12} /> wechseln
               </button>
@@ -787,6 +798,13 @@ function GlobalStyle() {
         background: none; border: none; color: var(--muted); font-size: 11px; cursor: pointer;
         display: flex; align-items: center; gap: 3px; padding: 0;
       }
+      .fh-user-refresh {
+        background: none; border: none; color: var(--accent); font-size: 11px; cursor: pointer;
+        display: flex; align-items: center; gap: 3px; padding: 0;
+      }
+      .fh-user-refresh:disabled { opacity: 0.6; cursor: wait; }
+      .fh-user-refresh .spin { animation: fh-spin 0.8s linear infinite; }
+      @keyframes fh-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       .fh-avatar {
         border-radius: 50%; display: flex; align-items: center;
         justify-content: center; font-weight: 700; color: #10131a;
