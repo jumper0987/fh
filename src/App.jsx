@@ -310,20 +310,29 @@ export default function App() {
   })();
 
   const calendarDayStatus = useMemo(() => {
-    const map = {};
+    const buckets = {};
     for (const e of EVENTS) {
-      if (!map[e.date]) map[e.date] = { lecture: false, lectureDone: true, exam: false, examDone: true };
-      const day = map[e.date];
-      if (e.type === "exam") {
-        day.exam = true;
-        if (!completed.has(e.id)) day.examDone = false;
-      } else {
-        day.lecture = true;
-        if (!completed.has(e.id)) day.lectureDone = false;
-      }
+      if (!buckets[e.date]) buckets[e.date] = { lecture: [], exam: [] };
+      buckets[e.date][e.type === "exam" ? "exam" : "lecture"].push(statusMap.get(e.id) || null);
+    }
+    const stateFor = (statuses) => {
+      if (statuses.length === 0) return null;
+      if (statuses.every((s) => s === "done")) return "done";
+      if (statuses.some((s) => s === "absent_unexcused")) return "unexcused";
+      if (statuses.some((s) => s === "absent_excused")) return "excused";
+      return "open";
+    };
+    const map = {};
+    for (const [date, b] of Object.entries(buckets)) {
+      map[date] = {
+        lecture: b.lecture.length > 0,
+        lectureState: stateFor(b.lecture),
+        exam: b.exam.length > 0,
+        examState: stateFor(b.exam),
+      };
     }
     return map;
-  }, [completed]);
+  }, [statusMap]);
 
   const courseStats = useMemo(() => {
     const map = {};
@@ -575,8 +584,8 @@ export default function App() {
                   <span>{d.getDate()}</span>
                   {info && (
                     <span className="fh-cal-dots">
-                      {info.lecture && <i className={`dot lecture ${info.lectureDone ? "done" : ""}`} />}
-                      {info.exam && <i className={`dot exam ${info.examDone ? "done" : ""}`} />}
+                      {info.lecture && <i className={`dot lecture ${info.lectureState}`} />}
+                      {info.exam && <i className={`dot exam ${info.examState}`} />}
                     </span>
                   )}
                 </button>
@@ -584,8 +593,11 @@ export default function App() {
             })}
           </div>
           <div className="fh-cal-legend">
-            <span><i className="dot lecture" /> Vorlesung</span>
-            <span><i className="dot exam" /> Prüfung</span>
+            <span><i className="dot lecture open" /> Vorlesung</span>
+            <span><i className="dot exam open" /> Prüfung</span>
+            <span><i className="dot done" /> Erledigt</span>
+            <span><i className="dot excused" /> Entschuldigt</span>
+            <span><i className="dot unexcused" /> Unentschuldigt</span>
           </div>
         </div>
 
@@ -611,6 +623,12 @@ export default function App() {
             </div>
           </div>
         )}
+
+        <div className="fh-icon-legend">
+          <span><CheckCircle2 size={13} className="ic done" /> Erledigt</span>
+          <span><ShieldCheck size={13} className="ic excused" /> Entschuldigt</span>
+          <span><XCircle size={13} className="ic unexcused" /> Unentschuldigt</span>
+        </div>
 
         {loaded && grouped.length === 0 && <div className="fh-empty">Keine Termine in dieser Ansicht — gut gemacht!</div>}
 
@@ -775,12 +793,20 @@ function GlobalStyle() {
       .fh-cal-cell.today span:first-child { color: var(--accent); font-weight: 700; }
       .fh-cal-cell.selected { background: var(--accent-soft); border: 1px solid var(--accent); }
       .fh-cal-dots { display: flex; gap: 3px; height: 8px; align-items: center; }
-      .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
-      .dot.lecture { background: var(--accent); }
-      .dot.exam { background: #e5789a; }
+      .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; background: var(--muted); }
+      .dot.lecture.open { background: var(--accent); }
+      .dot.exam.open { background: #c792ea; }
       .dot.done { background: var(--good); }
-      .fh-cal-legend { display: flex; gap: 14px; margin-top: 8px; font-size: 10.5px; color: var(--muted); }
+      .dot.excused { background: #6ea8fe; }
+      .dot.unexcused { background: #e5789a; }
+      .dot.done { background: var(--good); }
+      .fh-cal-legend { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 8px; font-size: 10px; color: var(--muted); }
       .fh-cal-legend span { display: flex; align-items: center; gap: 5px; }
+      .fh-icon-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+      .fh-icon-legend span { display: flex; align-items: center; gap: 5px; }
+      .fh-icon-legend .ic.done { color: var(--good); }
+      .fh-icon-legend .ic.excused { color: #6ea8fe; }
+      .fh-icon-legend .ic.unexcused { color: #e5789a; }
       .fh-selected-date-bar {
         background: var(--panel); border: 1px solid var(--accent); border-radius: 10px;
         padding: 10px 12px; font-size: 12.5px; margin-bottom: 10px;
