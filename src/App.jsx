@@ -27,7 +27,6 @@ import {
   courseColor,
   shortCourse,
   fmtDate,
-  dayInfo,
 } from "./data/events";
 
 const NAME_KEY = "fh-baufortschritt-name";
@@ -269,6 +268,22 @@ export default function App() {
     return s;
   })();
 
+  const calendarDayStatus = useMemo(() => {
+    const map = {};
+    for (const e of EVENTS) {
+      if (!map[e.date]) map[e.date] = { lecture: false, lectureDone: true, exam: false, examDone: true };
+      const day = map[e.date];
+      if (e.type === "exam") {
+        day.exam = true;
+        if (!completed.has(e.id)) day.examDone = false;
+      } else {
+        day.lecture = true;
+        if (!completed.has(e.id)) day.lectureDone = false;
+      }
+    }
+    return map;
+  }, [completed]);
+
   const courseStats = useMemo(() => {
     const map = {};
     for (const e of lectureEvents) {
@@ -505,7 +520,7 @@ export default function App() {
             {cells.map((d, i) => {
               if (!d) return <span className="fh-cal-cell empty" key={`e${i}`} />;
               const iso = toISODate(d);
-              const info = dayInfo[iso];
+              const info = calendarDayStatus[iso];
               const isToday = iso === todayISO;
               const isSelected = iso === selectedDate;
               const clickable = !!info;
@@ -519,8 +534,8 @@ export default function App() {
                   <span>{d.getDate()}</span>
                   {info && (
                     <span className="fh-cal-dots">
-                      {info.lecture && <i className="dot lecture" />}
-                      {info.exam && <i className="dot exam" />}
+                      {info.lecture && <i className={`dot lecture ${info.lectureDone ? "done" : ""}`} />}
+                      {info.exam && <i className={`dot exam ${info.examDone ? "done" : ""}`} />}
                     </span>
                   )}
                 </button>
@@ -658,16 +673,16 @@ function GlobalStyle() {
       .fh-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
       .fh-tab { background: var(--panel); border: 1px solid var(--line); color: var(--muted); border-radius: 999px; padding: 6px 14px; font-size: 12.5px; cursor: pointer; }
       .fh-tab.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
-      .fh-calendar { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
-      .fh-cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-      .fh-cal-month { font-size: 13.5px; font-weight: 600; text-transform: capitalize; }
-      .fh-cal-nav { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 3px; cursor: pointer; display: flex; }
-      .fh-cal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 4px; }
-      .fh-cal-weekdays span { text-align: center; font-size: 10.5px; color: var(--muted); }
-      .fh-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+      .fh-calendar { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin: 0 auto 12px auto; max-width: 380px; }
+      .fh-cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+      .fh-cal-month { font-size: 12.5px; font-weight: 600; text-transform: capitalize; }
+      .fh-cal-nav { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 2px; cursor: pointer; display: flex; }
+      .fh-cal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; margin-bottom: 3px; }
+      .fh-cal-weekdays span { text-align: center; font-size: 9.5px; color: var(--muted); }
+      .fh-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
       .fh-cal-cell {
         aspect-ratio: 1; background: transparent; border: none; color: var(--text);
-        border-radius: 8px; font-size: 12px; display: flex; flex-direction: column;
+        border-radius: 7px; font-size: 10.5px; display: flex; flex-direction: column;
         align-items: center; justify-content: center; gap: 2px; cursor: default;
       }
       .fh-cal-cell.empty { visibility: hidden; }
@@ -675,11 +690,12 @@ function GlobalStyle() {
       .fh-cal-cell.has-events:hover { background: var(--accent-soft); }
       .fh-cal-cell.today span:first-child { color: var(--accent); font-weight: 700; }
       .fh-cal-cell.selected { background: var(--accent-soft); border: 1px solid var(--accent); }
-      .fh-cal-dots { display: flex; gap: 2px; height: 5px; }
-      .dot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
+      .fh-cal-dots { display: flex; gap: 3px; height: 8px; align-items: center; }
+      .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
       .dot.lecture { background: var(--accent); }
       .dot.exam { background: #e5789a; }
-      .fh-cal-legend { display: flex; gap: 14px; margin-top: 10px; font-size: 11px; color: var(--muted); }
+      .dot.done { background: var(--good); }
+      .fh-cal-legend { display: flex; gap: 14px; margin-top: 8px; font-size: 10.5px; color: var(--muted); }
       .fh-cal-legend span { display: flex; align-items: center; gap: 5px; }
       .fh-selected-date-bar {
         display: flex; align-items: center; justify-content: space-between; background: var(--accent-soft);
