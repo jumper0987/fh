@@ -109,6 +109,7 @@ export default function App() {
     for (const [id, status] of statusMap) if (status === "done") s.add(id);
     return s;
   }, [statusMap]);
+  const resolvedIds = useMemo(() => new Set(statusMap.keys()), [statusMap]);
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("upcoming");
   const [showAllCourses, setShowAllCourses] = useState(false);
@@ -159,7 +160,7 @@ export default function App() {
     const list = Object.entries(counts)
       .map(([n, c]) => ({
         name: n,
-        percent: Math.round((c.done / totalCount) * 100),
+        percent: Math.round(((c.done + c.excused + c.unexcused) / totalCount) * 100),
         excusedPercent: Math.round((c.excused / totalCount) * 100),
         unexcusedPercent: Math.round((c.unexcused / totalCount) * 100),
       }))
@@ -302,8 +303,13 @@ export default function App() {
   };
 
   const completedCount = lectureEvents.filter((e) => completed.has(e.id)).length;
-  const remaining = totalCount - completedCount;
-  const percent = totalCount ? Math.round((completedCount / totalCount) * 1000) / 10 : 0;
+  const excusedCount = lectureEvents.filter((e) => statusMap.get(e.id) === "absent_excused").length;
+  const unexcusedCount = lectureEvents.filter((e) => statusMap.get(e.id) === "absent_unexcused").length;
+  const resolvedCount = completedCount + excusedCount + unexcusedCount;
+  const remaining = totalCount - resolvedCount;
+  const percent = totalCount ? Math.round((resolvedCount / totalCount) * 1000) / 10 : 0;
+  const excusedPercent = totalCount ? Math.round((excusedCount / totalCount) * 1000) / 10 : 0;
+  const unexcusedPercent = totalCount ? Math.round((unexcusedCount / totalCount) * 1000) / 10 : 0;
 
   const phaseIndex = (() => {
     let idx = 0;
@@ -376,8 +382,6 @@ export default function App() {
   }, [completedCount, streak, percent, totalCount]);
 
   const cells = useMemo(() => monthCells(calendarMonth), [calendarMonth]);
-
-  const resolvedIds = useMemo(() => new Set(statusMap.keys()), [statusMap]);
 
   const filtered = useMemo(() => {
     if (selectedDate) {
@@ -495,6 +499,8 @@ export default function App() {
             </div>
             <div className="fh-hero-sub">
               {percent}% Baufortschritt
+              {excusedPercent > 0 && <span className="fh-inline-tag excused"> · {excusedPercent}% entschuldigt</span>}
+              {unexcusedPercent > 0 && <span className="fh-inline-tag unexcused"> · {unexcusedPercent}% unentschuldigt</span>}
               {nextPhase ? ` · noch ${(nextPhase.min - percent).toFixed(1)}% bis „${nextPhase.name}“` : ""}
             </div>
           </div>
@@ -774,6 +780,8 @@ function GlobalStyle() {
       .fh-hero-main { flex: 1; min-width: 0; }
       .fh-hero-num { font-family: 'Barlow Condensed', sans-serif; font-size: 64px; line-height: 1; font-weight: 600; color: var(--accent); }
       .fh-hero-sub { color: var(--muted); font-size: 14px; margin-top: 6px; }
+      .fh-inline-tag.excused { color: #6ea8fe; }
+      .fh-inline-tag.unexcused { color: #e5789a; }
       .fh-phase { font-size: 15px; margin-top: 12px; }
       .fh-phase b { color: var(--text); }
       .fh-progress-track { height: 6px; border-radius: 3px; background: var(--panel-2); margin-top: 8px; overflow: hidden; }
