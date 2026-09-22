@@ -26,6 +26,7 @@ import {
   TYPE_LABEL,
   PHASES,
   courseColor,
+  courseNames,
   shortCourse,
   fmtDate,
 } from "./data/events";
@@ -366,6 +367,14 @@ export default function App() {
       .sort((a, b) => b.done / b.total - a.done / a.total || a.course.localeCompare(b.course));
   }, [completed]);
 
+  const buildingBands = useMemo(() => {
+    const byName = Object.fromEntries(courseStats.map((c) => [c.course, c]));
+    return courseNames.map((course) => {
+      const c = byName[course];
+      return { course, color: courseColor[course], pct: c ? c.done / c.total : 0 };
+    });
+  }, [courseStats]);
+
   const badges = useMemo(() => {
     const milestones = [1, 10, 25, 50, 75, 100].filter((m) => m <= totalCount || m === 1);
     const list = milestones.map((m) => ({
@@ -412,7 +421,6 @@ export default function App() {
     return g;
   }, [filtered]);
 
-  const fillHeight = 176 * (percent / 100);
   const monthLabel = calendarMonth.toLocaleDateString("de-AT", { month: "long", year: "numeric" });
   const todayISO = toISODate(now);
 
@@ -476,16 +484,26 @@ export default function App() {
           <svg width="120" height="200" viewBox="0 0 120 220" style={{ flexShrink: 0 }}>
             <rect x="8" y="204" width="104" height="10" rx="2" fill="#232a38" />
             <rect x="20" y="24" width="80" height="180" rx="2" fill="#1a202b" stroke="#2b3446" />
-            <clipPath id="fillClip">
-              <rect x="20" y={204 - fillHeight} width="80" height={fillHeight} />
-            </clipPath>
-            <rect x="20" y="24" width="80" height="180" fill="#ff8a3d" clipPath="url(#fillClip)" />
-            {[1, 2, 3, 4, 5, 6, 7].map((i) => (
-              <line key={i} x1="20" x2="100" y1={24 + i * 22.5} y2={24 + i * 22.5} stroke="#0e1117" strokeWidth="2" opacity="0.5" />
-            ))}
+
+            {buildingBands.map((b, i) => {
+              const bandH = 180 / buildingBands.length;
+              const y = 24 + i * bandH;
+              const fillW = 80 * Math.min(1, Math.max(0, b.pct));
+              return (
+                <g key={b.course}>
+                  <title>{shortCourse(b.course)}: {Math.round(b.pct * 100)}%</title>
+                  <rect x="20" y={y} width="80" height={bandH - 0.6} fill="#232a38" />
+                  {fillW > 0 && <rect x="20" y={y} width={fillW} height={bandH - 0.6} fill={b.color} />}
+                </g>
+              );
+            })}
+
+            <rect x="20" y="24" width="80" height="180" rx="2" fill="none" stroke="#2b3446" />
+
             <line x1="94" y1="4" x2="94" y2="24" stroke="#5b6577" strokeWidth="2" />
-            <line x1="94" y1="6" x2="60" y2="14" stroke="#5b6577" strokeWidth="2" />
-            <line x1="60" y1="14" x2="60" y2="30" stroke="#5b6577" strokeWidth="1.5" />
+            <line x1="94" y1="6" x2="58" y2="14" stroke="#5b6577" strokeWidth="2" />
+            <line x1="58" y1="14" x2="58" y2="24" stroke="#5b6577" strokeWidth="1.5" />
+            <circle cx="94" cy="4" r="2" fill="#5b6577" />
           </svg>
 
           <div className="fh-hero-main">
@@ -529,7 +547,7 @@ export default function App() {
           {leaderboard.map((row, i) => (
             <div className={`fh-lb-row ${row.name === name ? "me" : ""}`} key={row.name}>
               <span className="fh-lb-rank">{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}</span>
-              <Avatar name={row.name} url={avatars[row.name]} size={20} />
+              <Avatar name={row.name} url={avatars[row.name]} size={32} />
               <span className="fh-lb-name">{row.name}</span>
               <span className="fh-lb-breakdown">
                 {row.excusedPercent > 0 && <span className="excused">{row.excusedPercent}% E</span>}
@@ -540,23 +558,23 @@ export default function App() {
           ))}
         </div>
 
-        <div className="fh-section-title"><Building2 size={15} /> Gewerke im Bau</div>
-        <div className="fh-course-grid">
-          {(showAllCourses ? courseStats : courseStats.slice(0, 6)).map((c) => (
-            <div className="fh-course-card" key={c.course}>
-              <div className="fh-course-name" title={c.course}>{shortCourse(c.course)}</div>
-              <div className="fh-course-bar-track">
-                <div className="fh-course-bar-fill" style={{ width: `${(c.done / c.total) * 100}%`, background: c.color }} />
+        <button className="fh-section-title fh-collapsible-toggle" onClick={() => setShowAllCourses((v) => !v)}>
+          <Building2 size={15} /> Gewerke im Bau
+          <span className="fh-collapsible-count">{courseStats.filter((c) => c.done === c.total).length}/{courseStats.length}</span>
+          {showAllCourses ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+        {showAllCourses && (
+          <div className="fh-course-grid">
+            {courseStats.map((c) => (
+              <div className="fh-course-card" key={c.course}>
+                <div className="fh-course-name" title={c.course}>{shortCourse(c.course)}</div>
+                <div className="fh-course-bar-track">
+                  <div className="fh-course-bar-fill" style={{ width: `${(c.done / c.total) * 100}%`, background: c.color }} />
+                </div>
+                <div className="fh-course-count">{c.done}/{c.total}</div>
               </div>
-              <div className="fh-course-count">{c.done}/{c.total}</div>
-            </div>
-          ))}
-        </div>
-        {courseStats.length > 6 && (
-          <button className="fh-toggle-more" onClick={() => setShowAllCourses((v) => !v)}>
-            {showAllCourses ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-            {showAllCourses ? "Weniger anzeigen" : `Alle ${courseStats.length} Gewerke anzeigen`}
-          </button>
+            ))}
+          </div>
         )}
 
         <div className="fh-section-title"><ListFilter size={15} /> Termine</div>
@@ -791,8 +809,10 @@ function GlobalStyle() {
       .fh-hero-stat b { display: block; font-family: 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 600; color: var(--text); line-height: 1.1; white-space: nowrap; }
       .fh-hero-stat small { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
       .fh-section-title { font-size: 14px; font-weight: 600; margin: 24px 0 10px 0; display: flex; align-items: center; gap: 8px; }
+      .fh-collapsible-toggle { background: none; border: none; color: var(--text); width: 100%; text-align: left; cursor: pointer; padding: 0; }
+      .fh-collapsible-count { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--muted); }
       .fh-leaderboard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px; }
-      .fh-lb-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; font-size: 13px; border-radius: 8px; }
+      .fh-lb-row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; font-size: 13px; border-radius: 8px; }
       .fh-lb-row.me { background: var(--accent-soft); }
       .fh-lb-rank { width: 22px; text-align: center; font-size: 13px; }
       .fh-lb-name { flex: 1; }
