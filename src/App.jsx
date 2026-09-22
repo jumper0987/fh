@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Building2,
   Flame,
@@ -11,11 +11,16 @@ import {
   ListFilter,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Medal,
   LogOut,
+  Camera,
+  X,
 } from "lucide-react";
-import { supabase, TABLE } from "./supabaseClient";
+import { supabase, TABLE, PROFILES_TABLE, AVATAR_BUCKET } from "./supabaseClient";
 import {
+  EVENTS,
   lectureEvents,
   examEvents,
   TYPE_LABEL,
@@ -23,9 +28,11 @@ import {
   courseColor,
   shortCourse,
   fmtDate,
+  dayInfo,
 } from "./data/events";
 
 const NAME_KEY = "fh-baufortschritt-name";
+const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 
 function initials(name) {
   return name
@@ -43,6 +50,57 @@ function hashColor(name) {
   return `hsl(${hue}, 55%, 55%)`;
 }
 
+function safeSlug(name) {
+  return name
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function Avatar({ name, url, size = 22 }) {
+  if (url) {
+    return (
+      <img
+        src={url}
+        alt={name}
+        className="fh-avatar-img"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  return (
+    <span
+      className="fh-avatar"
+      style={{ background: hashColor(name), width: size, height: size, fontSize: size * 0.42 }}
+    >
+      {initials(name)}
+    </span>
+  );
+}
+
+/* Kalender-Monatsraster */
+function monthCells(monthDate) {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstOfMonth = new Date(year, month, 1);
+  const startOffset = (firstOfMonth.getDay() + 6) % 7; // Montag = 0
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
+  return cells;
+}
+
+function toISODate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export default function App() {
   const [name, setName] = useState(() => localStorage.getItem(NAME_KEY) || "");
   const [nameInput, setNameInput] = useState("");
@@ -51,6 +109,14 @@ export default function App() {
   const [tab, setTab] = useState("upcoming");
   const [showAllCourses, setShowAllCourses] = useState(false);
   const [leaderboard, setLeaderboard] = useState([]);
+  const [avatars, setAvatars] = useState({});
+  const [uploading, setUploading] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const n = new Date();
+    return new Date(n.getFullYear(), n.getMonth(), 1);
+  });
+  const [selectedDate, setSelectedDate] = useState(null);
+  const fileInputRef = useRef(null);
   const now = useMemo(() => new Date(), []);
 
   const totalCount = lectureEvents.length;
@@ -78,22 +144,34 @@ export default function App() {
     setLeaderboard(list);
   }, [totalCount]);
 
+  const loadAvatars = useCallback(async () => {
+    const { data, error } = await supabase.from(PROFILES_TABLE).select("student_name, avatar_url");
+    if (error || !data) return;
+    const map = {};
+    for (const row of data) if (row.avatar_url) map[row.student_name] = row.avatar_url;
+    setAvatars(map);
+  }, []);
+
   useEffect(() => {
     if (!name) return;
     loadOwnProgress(name);
     loadLeaderboard();
+    loadAvatars();
 
     const channel = supabase
-      .channel("lecture_progress_changes")
+      .channel("fh_baufortschritt_changes")
       .on("postgres_changes", { event: "*", schema: "public", table: TABLE }, () => {
         loadLeaderboard();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: PROFILES_TABLE }, () => {
+        loadAvatars();
       })
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [name, loadOwnProgress, loadLeaderboard]);
+  }, [name, loadOwnProgress, loadLeaderboard, loadAvatars]);
 
   const chooseName = (e) => {
     e.preventDefault();
@@ -130,6 +208,46 @@ export default function App() {
     [completed, name]
   );
 
+  const openFilePicker = () => fileInputRef.current?.click();
+
+  const onAvatarFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("Bitte ein Bild auswählen.");
+      return;
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      alert("Bild ist zu groß (max. 3 MB).");
+      return;
+    }
+    setUploading(true);
+    const ext = file.name.split(".").pop() || "jpg";
+    const path = `${safeSlug(name)}-${Date.now()}.${ext}`;
+    const { error: upErr } = await supabase.storage.from(AVATAR_BUCKET).upload(path, file, {
+      upsert: true,
+      cacheControl: "3600",
+    });
+    if (upErr) {
+      console.error("Avatar-Upload fehlgeschlagen", upErr);
+      alert("Hochladen hat nicht geklappt: " + upErr.message);
+      setUploading(false);
+      return;
+    }
+    const { data } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(path);
+    const url = data.publicUrl;
+    const { error: saveErr } = await supabase
+      .from(PROFILES_TABLE)
+      .upsert(
+        { student_name: name, avatar_url: url, updated_at: new Date().toISOString() },
+        { onConflict: "student_name" }
+      );
+    if (saveErr) console.error("Profil speichern fehlgeschlagen", saveErr);
+    setAvatars((prev) => ({ ...prev, [name]: url }));
+    setUploading(false);
+  };
+
   const completedCount = lectureEvents.filter((e) => completed.has(e.id)).length;
   const remaining = totalCount - completedCount;
   const percent = totalCount ? Math.round((completedCount / totalCount) * 1000) / 10 : 0;
@@ -165,7 +283,7 @@ export default function App() {
   }, [completed]);
 
   const badges = useMemo(() => {
-    const milestones = [1, 10, 25, 50, 75, 100, 125].filter((m) => m <= totalCount || m === 1);
+    const milestones = [1, 10, 25, 50, 75, 100].filter((m) => m <= totalCount || m === 1);
     const list = milestones.map((m) => ({
       key: `count-${m}`,
       label: `${m} Termine geschafft`,
@@ -179,7 +297,12 @@ export default function App() {
     return list;
   }, [completedCount, streak, percent, totalCount]);
 
+  const cells = useMemo(() => monthCells(calendarMonth), [calendarMonth]);
+
   const filtered = useMemo(() => {
+    if (selectedDate) {
+      return EVENTS.filter((e) => e.date === selectedDate).sort((a, b) => a.startAt - b.startAt);
+    }
     const weekFromNow = new Date(now);
     weekFromNow.setDate(weekFromNow.getDate() + 7);
     if (tab === "exams") return examEvents.slice().sort((a, b) => a.startAt - b.startAt);
@@ -187,7 +310,7 @@ export default function App() {
     if (tab === "upcoming") list = list.filter((e) => e.endAt >= now || !completed.has(e.id));
     if (tab === "week") list = list.filter((e) => e.startAt >= now && e.startAt <= weekFromNow);
     return list.sort((a, b) => a.startAt - b.startAt);
-  }, [tab, completed, now]);
+  }, [tab, completed, now, selectedDate]);
 
   const grouped = useMemo(() => {
     const g = [];
@@ -203,6 +326,8 @@ export default function App() {
   }, [filtered]);
 
   const fillHeight = 176 * (percent / 100);
+  const monthLabel = calendarMonth.toLocaleDateString("de-AT", { month: "long", year: "numeric" });
+  const todayISO = toISODate(now);
 
   if (!name) {
     return (
@@ -239,11 +364,25 @@ export default function App() {
             <div className="fh-head-label">FH Campus Wien</div>
             <h1 className="fh-title">Baufortschritt Semester</h1>
           </div>
-          <button className="fh-user-chip" onClick={switchUser} title="Namen ändern">
-            <span className="fh-avatar" style={{ background: hashColor(name) }}>{initials(name)}</span>
-            {name}
-            <LogOut size={13} />
-          </button>
+          <div className="fh-user-block">
+            <button className="fh-avatar-btn" onClick={openFilePicker} title="Profilbild ändern" disabled={uploading}>
+              <Avatar name={name} url={avatars[name]} size={34} />
+              <span className="fh-avatar-edit"><Camera size={11} /></span>
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={onAvatarFileChange}
+            />
+            <div className="fh-user-text">
+              <span>{name}</span>
+              <button className="fh-user-logout" onClick={switchUser} title="Namen ändern">
+                <LogOut size={12} /> wechseln
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="fh-hero">
@@ -301,7 +440,7 @@ export default function App() {
           {leaderboard.map((row, i) => (
             <div className={`fh-lb-row ${row.name === name ? "me" : ""}`} key={row.name}>
               <span className="fh-lb-rank">{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}</span>
-              <span className="fh-avatar sm" style={{ background: hashColor(row.name) }}>{initials(row.name)}</span>
+              <Avatar name={row.name} url={avatars[row.name]} size={20} />
               <span className="fh-lb-name">{row.name}</span>
               <span className="fh-lb-percent">{row.percent}%</span>
             </div>
@@ -335,11 +474,72 @@ export default function App() {
             ["all", "Alle"],
             ["exams", "Prüfungen"],
           ].map(([k, label]) => (
-            <button key={k} className={`fh-tab ${tab === k ? "active" : ""}`} onClick={() => setTab(k)}>
+            <button
+              key={k}
+              className={`fh-tab ${tab === k && !selectedDate ? "active" : ""}`}
+              onClick={() => {
+                setTab(k);
+                setSelectedDate(null);
+              }}
+            >
               {label}
             </button>
           ))}
         </div>
+
+        <div className="fh-calendar">
+          <div className="fh-cal-header">
+            <button className="fh-cal-nav" onClick={() => setCalendarMonth((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))}>
+              <ChevronLeft size={16} />
+            </button>
+            <span className="fh-cal-month">{monthLabel}</span>
+            <button className="fh-cal-nav" onClick={() => setCalendarMonth((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1))}>
+              <ChevronRight size={16} />
+            </button>
+          </div>
+          <div className="fh-cal-weekdays">
+            {WEEKDAYS.map((w) => (
+              <span key={w}>{w}</span>
+            ))}
+          </div>
+          <div className="fh-cal-grid">
+            {cells.map((d, i) => {
+              if (!d) return <span className="fh-cal-cell empty" key={`e${i}`} />;
+              const iso = toISODate(d);
+              const info = dayInfo[iso];
+              const isToday = iso === todayISO;
+              const isSelected = iso === selectedDate;
+              const clickable = !!info;
+              return (
+                <button
+                  key={iso}
+                  className={`fh-cal-cell ${isToday ? "today" : ""} ${isSelected ? "selected" : ""} ${clickable ? "has-events" : ""}`}
+                  disabled={!clickable}
+                  onClick={() => setSelectedDate(isSelected ? null : iso)}
+                >
+                  <span>{d.getDate()}</span>
+                  {info && (
+                    <span className="fh-cal-dots">
+                      {info.lecture && <i className="dot lecture" />}
+                      {info.exam && <i className="dot exam" />}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <div className="fh-cal-legend">
+            <span><i className="dot lecture" /> Vorlesung</span>
+            <span><i className="dot exam" /> Prüfung</span>
+          </div>
+        </div>
+
+        {selectedDate && (
+          <div className="fh-selected-date-bar">
+            Zeige nur {fmtDate(selectedDate)}
+            <button onClick={() => setSelectedDate(null)}><X size={13} /> zurücksetzen</button>
+          </div>
+        )}
 
         {loaded && grouped.length === 0 && <div className="fh-empty">Keine Termine in dieser Ansicht — gut gemacht!</div>}
 
@@ -408,16 +608,26 @@ function GlobalStyle() {
         border-radius: 8px; padding: 10px 18px; cursor: pointer; font-size: 14px;
       }
       .fh-topbar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-      .fh-user-chip {
-        display: flex; align-items: center; gap: 8px; background: var(--panel);
-        border: 1px solid var(--line); color: var(--muted); border-radius: 999px;
-        padding: 6px 12px; font-size: 12.5px; cursor: pointer;
+      .fh-user-block { display: flex; align-items: center; gap: 10px; }
+      .fh-avatar-btn {
+        position: relative; background: none; border: none; padding: 0; cursor: pointer; line-height: 0;
+      }
+      .fh-avatar-btn:disabled { opacity: 0.6; cursor: wait; }
+      .fh-avatar-edit {
+        position: absolute; bottom: -2px; right: -2px; background: var(--accent); color: #1a0f05;
+        border-radius: 50%; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;
+        border: 2px solid var(--bg);
+      }
+      .fh-user-text { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 12.5px; }
+      .fh-user-logout {
+        background: none; border: none; color: var(--muted); font-size: 11px; cursor: pointer;
+        display: flex; align-items: center; gap: 3px; padding: 0;
       }
       .fh-avatar {
-        width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center;
-        justify-content: center; font-size: 10px; font-weight: 700; color: #10131a;
+        border-radius: 50%; display: flex; align-items: center;
+        justify-content: center; font-weight: 700; color: #10131a;
       }
-      .fh-avatar.sm { width: 18px; height: 18px; font-size: 9px; }
+      .fh-avatar-img { border-radius: 50%; object-fit: cover; display: block; }
       .fh-head-label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
       .fh-title { font-family: 'Barlow Condensed', 'IBM Plex Sans', sans-serif; font-size: 30px; font-weight: 600; margin: 0 0 20px 0; }
       .fh-hero { display: flex; gap: 24px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 18px; }
@@ -445,9 +655,38 @@ function GlobalStyle() {
       .fh-course-bar-fill { height: 100%; border-radius: 3px; }
       .fh-course-count { font-size: 11px; color: var(--muted); margin-top: 5px; }
       .fh-toggle-more { background: none; border: none; color: var(--muted); font-size: 12px; cursor: pointer; margin-top: 8px; display: flex; align-items: center; gap: 4px; }
-      .fh-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+      .fh-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
       .fh-tab { background: var(--panel); border: 1px solid var(--line); color: var(--muted); border-radius: 999px; padding: 6px 14px; font-size: 12.5px; cursor: pointer; }
       .fh-tab.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+      .fh-calendar { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+      .fh-cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+      .fh-cal-month { font-size: 13.5px; font-weight: 600; text-transform: capitalize; }
+      .fh-cal-nav { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 3px; cursor: pointer; display: flex; }
+      .fh-cal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 4px; }
+      .fh-cal-weekdays span { text-align: center; font-size: 10.5px; color: var(--muted); }
+      .fh-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+      .fh-cal-cell {
+        aspect-ratio: 1; background: transparent; border: none; color: var(--text);
+        border-radius: 8px; font-size: 12px; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 2px; cursor: default;
+      }
+      .fh-cal-cell.empty { visibility: hidden; }
+      .fh-cal-cell.has-events { cursor: pointer; background: var(--panel-2); }
+      .fh-cal-cell.has-events:hover { background: var(--accent-soft); }
+      .fh-cal-cell.today span:first-child { color: var(--accent); font-weight: 700; }
+      .fh-cal-cell.selected { background: var(--accent-soft); border: 1px solid var(--accent); }
+      .fh-cal-dots { display: flex; gap: 2px; height: 5px; }
+      .dot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
+      .dot.lecture { background: var(--accent); }
+      .dot.exam { background: #e5789a; }
+      .fh-cal-legend { display: flex; gap: 14px; margin-top: 10px; font-size: 11px; color: var(--muted); }
+      .fh-cal-legend span { display: flex; align-items: center; gap: 5px; }
+      .fh-selected-date-bar {
+        display: flex; align-items: center; justify-content: space-between; background: var(--accent-soft);
+        border: 1px solid var(--accent); color: var(--accent); border-radius: 8px; padding: 8px 12px;
+        font-size: 12.5px; margin-bottom: 10px;
+      }
+      .fh-selected-date-bar button { background: none; border: none; color: var(--accent); font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; }
       .fh-date-group { margin-bottom: 14px; }
       .fh-date-header { font-size: 11.5px; color: var(--muted); margin-bottom: 6px; text-transform: capitalize; }
       .fh-item { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; }

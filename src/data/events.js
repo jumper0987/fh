@@ -65,3 +65,12 @@ export function fmtDate(iso) {
   const d = new Date(iso + "T00:00:00");
   return d.toLocaleDateString("de-AT", { weekday: "short", day: "2-digit", month: "2-digit" });
 }
+
+/* Schnelle Nachschau für die Kalenderansicht: welche Tage haben
+   Vorlesungen bzw. Prüfungen */
+export const dayInfo = {};
+for (const e of EVENTS) {
+  if (!dayInfo[e.date]) dayInfo[e.date] = { lecture: false, exam: false };
+  if (e.type === "exam") dayInfo[e.date].exam = true;
+  else dayInfo[e.date].lecture = true;
+}

@@ -12,3 +12,5 @@ if (!supabaseUrl || !supabaseAnonKey) {
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export const TABLE = "lecture_progress";
+export const PROFILES_TABLE = "profiles";
+export const AVATAR_BUCKET = "avatars";
