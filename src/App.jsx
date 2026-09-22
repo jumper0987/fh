@@ -3,7 +3,6 @@ import {
   Building2,
   Trophy,
   CheckCircle2,
-  Circle,
   Lock,
   MapPin,
   Clock,
@@ -16,6 +15,8 @@ import {
   LogOut,
   Camera,
   X,
+  ShieldCheck,
+  XCircle,
 } from "lucide-react";
 import { supabase, TABLE, PROFILES_TABLE, AVATAR_BUCKET } from "./supabaseClient";
 import {
@@ -102,7 +103,12 @@ function toISODate(d) {
 export default function App() {
   const [name, setName] = useState(() => localStorage.getItem(NAME_KEY) || "");
   const [nameInput, setNameInput] = useState("");
-  const [completed, setCompleted] = useState(() => new Set());
+  const [statusMap, setStatusMap] = useState(() => new Map());
+  const completed = useMemo(() => {
+    const s = new Set();
+    for (const [id, status] of statusMap) if (status === "done") s.add(id);
+    return s;
+  }, [statusMap]);
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("upcoming");
   const [showAllCourses, setShowAllCourses] = useState(false);
@@ -123,10 +129,15 @@ export default function App() {
     setLoaded(false);
     const { data, error } = await supabase
       .from(TABLE)
-      .select("event_id, done")
+      .select("event_id, done, status")
       .eq("student_name", who);
     if (!error && data) {
-      setCompleted(new Set(data.filter((r) => r.done).map((r) => r.event_id)));
+      const map = new Map();
+      for (const r of data) {
+        const status = r.status || (r.done ? "done" : null);
+        if (status) map.set(r.event_id, status);
+      }
+      setStatusMap(map);
     }
     setLoaded(true);
   }, []);
@@ -183,27 +194,32 @@ export default function App() {
     localStorage.removeItem(NAME_KEY);
     setName("");
     setNameInput("");
-    setCompleted(new Set());
+    setStatusMap(new Map());
   };
 
-  const toggle = useCallback(
-    async (id) => {
-      const willBeDone = !completed.has(id);
-      setCompleted((prev) => {
-        const next = new Set(prev);
-        if (willBeDone) next.add(id);
+  const setEventStatus = useCallback(
+    async (id, newStatus) => {
+      setStatusMap((prev) => {
+        const next = new Map(prev);
+        if (newStatus) next.set(id, newStatus);
         else next.delete(id);
         return next;
       });
       const { error } = await supabase
         .from(TABLE)
         .upsert(
-          { student_name: name, event_id: id, done: willBeDone, updated_at: new Date().toISOString() },
+          {
+            student_name: name,
+            event_id: id,
+            done: newStatus === "done",
+            status: newStatus,
+            updated_at: new Date().toISOString(),
+          },
           { onConflict: "student_name,event_id" }
         );
       if (error) console.error("Speichern fehlgeschlagen", error);
     },
-    [completed, name]
+    [name]
   );
 
   const openFilePicker = () => fileInputRef.current?.click();
@@ -562,18 +578,45 @@ export default function App() {
             <div className="fh-date-header">{fmtDate(g.date)}</div>
             {g.items.map((e) => {
               const isExam = e.type === "exam";
-              const done = completed.has(e.id);
+              const status = statusMap.get(e.id) || null;
               return (
-                <div className={`fh-item ${done ? "done" : ""}`} key={e.id}>
-                  <button className={`fh-item-check ${done ? "on" : ""}`} onClick={() => toggle(e.id)} aria-label="Erledigt umschalten">
-                    {done ? <CheckCircle2 size={20} /> : <Circle size={20} />}
-                  </button>
+                <div
+                  className={`fh-item ${status === "done" ? "done" : ""} ${
+                    status === "absent_excused" ? "absent-excused" : ""
+                  } ${status === "absent_unexcused" ? "absent-unexcused" : ""}`}
+                  key={e.id}
+                >
+                  <div className="fh-status-group">
+                    <button
+                      className={`fh-status-btn done ${status === "done" ? "active" : ""}`}
+                      onClick={() => setEventStatus(e.id, status === "done" ? null : "done")}
+                      title="Erledigt"
+                    >
+                      <CheckCircle2 size={16} />
+                    </button>
+                    <button
+                      className={`fh-status-btn excused ${status === "absent_excused" ? "active" : ""}`}
+                      onClick={() => setEventStatus(e.id, status === "absent_excused" ? null : "absent_excused")}
+                      title="Entschuldigt abwesend"
+                    >
+                      <ShieldCheck size={14} />
+                    </button>
+                    <button
+                      className={`fh-status-btn unexcused ${status === "absent_unexcused" ? "active" : ""}`}
+                      onClick={() => setEventStatus(e.id, status === "absent_unexcused" ? null : "absent_unexcused")}
+                      title="Unentschuldigt abwesend"
+                    >
+                      <XCircle size={14} />
+                    </button>
+                  </div>
                   <div className="fh-item-main">
                     <div className="fh-item-course">{shortCourse(e.course)}</div>
                     <div className="fh-item-meta">
                       <span><Clock size={11} /> {e.start}–{e.end}</span>
                       {e.room && <span><MapPin size={11} /> {e.room}</span>}
                       {e.lecturer && <span>{e.lecturer}</span>}
+                      {status === "absent_excused" && <span className="fh-status-tag excused">entschuldigt</span>}
+                      {status === "absent_unexcused" && <span className="fh-status-tag unexcused">unentschuldigt</span>}
                     </div>
                   </div>
                   <span className="fh-badge-type" style={isExam ? { borderColor: "#ff8a3d", color: "#ff8a3d" } : undefined}>
@@ -705,10 +748,22 @@ function GlobalStyle() {
       .fh-selected-date-bar button { background: none; border: none; color: var(--accent); font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; }
       .fh-date-group { margin-bottom: 14px; }
       .fh-date-header { font-size: 11.5px; color: var(--muted); margin-bottom: 6px; text-transform: capitalize; }
-      .fh-item { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; }
+      .fh-item { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; }
       .fh-item.done { opacity: 0.55; }
-      .fh-item-check { background: none; border: none; cursor: pointer; color: var(--muted); flex-shrink: 0; }
-      .fh-item-check.on { color: var(--good); }
+      .fh-item.absent-excused { border-left-color: #6ea8fe; }
+      .fh-item.absent-unexcused { border-left-color: #e5789a; }
+      .fh-status-group { display: flex; gap: 4px; flex-shrink: 0; }
+      .fh-status-btn {
+        background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+        border-radius: 8px; width: 26px; height: 26px; display: flex; align-items: center;
+        justify-content: center; cursor: pointer; padding: 0;
+      }
+      .fh-status-btn.done.active { background: rgba(95,209,160,0.18); border-color: var(--good); color: var(--good); }
+      .fh-status-btn.excused.active { background: rgba(110,168,254,0.18); border-color: #6ea8fe; color: #6ea8fe; }
+      .fh-status-btn.unexcused.active { background: rgba(229,120,154,0.18); border-color: #e5789a; color: #e5789a; }
+      .fh-status-tag { font-weight: 600; }
+      .fh-status-tag.excused { color: #6ea8fe; }
+      .fh-status-tag.unexcused { color: #e5789a; }
       .fh-item-main { flex: 1; min-width: 0; }
       .fh-item-course { font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .fh-item-meta { font-size: 11.5px; color: var(--muted); display: flex; gap: 10px; margin-top: 2px; flex-wrap: wrap; }
