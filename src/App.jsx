@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Building2,
-  Flame,
   Trophy,
   CheckCircle2,
   Circle,
@@ -401,7 +400,7 @@ export default function App() {
             <line x1="60" y1="14" x2="60" y2="30" stroke="#5b6577" strokeWidth="1.5" />
           </svg>
 
-          <div>
+          <div className="fh-hero-main">
             <div className="fh-hero-num">{remaining}</div>
             <div className="fh-hero-sub">
               von {totalCount} Vorlesungsterminen noch offen · {completedCount} erledigt
@@ -415,21 +414,21 @@ export default function App() {
               {nextPhase ? ` · noch ${(nextPhase.min - percent).toFixed(1)}% bis „${nextPhase.name}“` : ""}
             </div>
           </div>
-        </div>
 
-        <div className="fh-stats-row">
-          <div className="fh-stat">
-            <div className="fh-stat-label"><Flame size={13} /> Serie</div>
-            <div className="fh-stat-val">{streak}</div>
-          </div>
-          <div className="fh-stat">
-            <div className="fh-stat-label"><Trophy size={13} /> Erledigt</div>
-            <div className="fh-stat-val">{completedCount}</div>
-          </div>
-          <div className="fh-stat">
-            <div className="fh-stat-label"><Building2 size={13} /> Prüfungen</div>
-            <div className="fh-stat-val">
-              {examEvents.filter((e) => completed.has(e.id)).length}/{examEvents.length}
+          <div className="fh-hero-stats">
+            <div className="fh-hero-stat">
+              <Trophy size={14} />
+              <div>
+                <b>{completedCount}</b>
+                <small>Erledigt</small>
+              </div>
+            </div>
+            <div className="fh-hero-stat">
+              <Building2 size={14} />
+              <div>
+                <b>{examEvents.filter((e) => completed.has(e.id)).length}/{examEvents.length}</b>
+                <small>Prüfungen</small>
+              </div>
             </div>
           </div>
         </div>
@@ -630,17 +629,18 @@ function GlobalStyle() {
       .fh-avatar-img { border-radius: 50%; object-fit: cover; display: block; }
       .fh-head-label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
       .fh-title { font-family: 'Barlow Condensed', 'IBM Plex Sans', sans-serif; font-size: 30px; font-weight: 600; margin: 0 0 20px 0; }
-      .fh-hero { display: flex; gap: 24px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 18px; }
+      .fh-hero { display: flex; gap: 20px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 18px; }
+      .fh-hero-main { flex: 1; min-width: 0; }
       .fh-hero-num { font-family: 'Barlow Condensed', sans-serif; font-size: 64px; line-height: 1; font-weight: 600; color: var(--accent); }
       .fh-hero-sub { color: var(--muted); font-size: 14px; margin-top: 6px; }
       .fh-phase { font-size: 15px; margin-top: 12px; }
       .fh-phase b { color: var(--text); }
       .fh-progress-track { height: 6px; border-radius: 3px; background: var(--panel-2); margin-top: 8px; overflow: hidden; }
       .fh-progress-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.4s ease; }
-      .fh-stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
-      .fh-stat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
-      .fh-stat-label { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-      .fh-stat-val { font-family: 'Barlow Condensed', sans-serif; font-size: 26px; font-weight: 600; }
+      .fh-hero-stats { display: flex; flex-direction: column; gap: 14px; flex-shrink: 0; padding-left: 18px; border-left: 1px solid var(--line); }
+      .fh-hero-stat { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+      .fh-hero-stat b { display: block; font-family: 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 600; color: var(--text); line-height: 1.1; white-space: nowrap; }
+      .fh-hero-stat small { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
       .fh-section-title { font-size: 14px; font-weight: 600; margin: 24px 0 10px 0; display: flex; align-items: center; gap: 8px; }
       .fh-leaderboard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px; }
       .fh-lb-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; font-size: 13px; border-radius: 8px; }
@@ -704,8 +704,9 @@ function GlobalStyle() {
       .fh-badge.locked { color: var(--muted); }
       .fh-empty { color: var(--muted); font-size: 13px; padding: 16px 0; text-align: center; }
       @media (max-width: 520px) {
-        .fh-hero { flex-direction: column; align-items: flex-start; }
-        .fh-stats-row, .fh-course-grid, .fh-badges-grid { grid-template-columns: 1fr; }
+        .fh-hero { flex-direction: column; align-items: stretch; }
+        .fh-hero-stats { flex-direction: row; border-left: none; border-top: 1px solid var(--line); padding-left: 0; padding-top: 14px; justify-content: space-around; }
+        .fh-course-grid, .fh-badges-grid { grid-template-columns: 1fr; }
       }
     `}</style>
   );
