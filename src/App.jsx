@@ -143,13 +143,27 @@ export default function App() {
   }, []);
 
   const loadLeaderboard = useCallback(async () => {
-    const { data, error } = await supabase.from(TABLE).select("student_name, done").eq("done", true);
+    const { data, error } = await supabase.from(TABLE).select("student_name, event_id, done, status");
     if (error || !data) return;
+    const lectureIds = new Set(lectureEvents.map((e) => e.id));
     const counts = {};
-    for (const row of data) counts[row.student_name] = (counts[row.student_name] || 0) + 1;
+    for (const row of data) {
+      if (!lectureIds.has(row.event_id)) continue;
+      const status = row.status || (row.done ? "done" : null);
+      if (!status) continue;
+      if (!counts[row.student_name]) counts[row.student_name] = { done: 0, excused: 0, unexcused: 0 };
+      if (status === "done") counts[row.student_name].done++;
+      else if (status === "absent_excused") counts[row.student_name].excused++;
+      else if (status === "absent_unexcused") counts[row.student_name].unexcused++;
+    }
     const list = Object.entries(counts)
-      .map(([n, count]) => ({ name: n, count, percent: Math.round((count / totalCount) * 100) }))
-      .sort((a, b) => b.count - a.count);
+      .map(([n, c]) => ({
+        name: n,
+        percent: Math.round((c.done / totalCount) * 100),
+        excusedPercent: Math.round((c.excused / totalCount) * 100),
+        unexcusedPercent: Math.round((c.unexcused / totalCount) * 100),
+      }))
+      .sort((a, b) => b.percent - a.percent);
     setLeaderboard(list);
   }, [totalCount]);
 
@@ -363,6 +377,8 @@ export default function App() {
 
   const cells = useMemo(() => monthCells(calendarMonth), [calendarMonth]);
 
+  const resolvedIds = useMemo(() => new Set(statusMap.keys()), [statusMap]);
+
   const filtered = useMemo(() => {
     if (selectedDate) {
       return EVENTS.filter((e) => e.date === selectedDate).sort((a, b) => a.startAt - b.startAt);
@@ -370,11 +386,14 @@ export default function App() {
     const weekFromNow = new Date(now);
     weekFromNow.setDate(weekFromNow.getDate() + 7);
     if (tab === "exams") return examEvents.slice().sort((a, b) => a.startAt - b.startAt);
+    if (tab === "past") {
+      return lectureEvents.filter((e) => e.endAt < now).sort((a, b) => b.startAt - a.startAt);
+    }
     let list = lectureEvents.slice();
-    if (tab === "upcoming") list = list.filter((e) => e.endAt >= now || !completed.has(e.id));
+    if (tab === "upcoming") list = list.filter((e) => e.endAt >= now || !resolvedIds.has(e.id));
     if (tab === "week") list = list.filter((e) => e.startAt >= now && e.startAt <= weekFromNow);
     return list.sort((a, b) => a.startAt - b.startAt);
-  }, [tab, completed, now, selectedDate]);
+  }, [tab, resolvedIds, now, selectedDate]);
 
   const grouped = useMemo(() => {
     const g = [];
@@ -506,6 +525,10 @@ export default function App() {
               <span className="fh-lb-rank">{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}</span>
               <Avatar name={row.name} url={avatars[row.name]} size={20} />
               <span className="fh-lb-name">{row.name}</span>
+              <span className="fh-lb-breakdown">
+                {row.excusedPercent > 0 && <span className="excused">{row.excusedPercent}% E</span>}
+                {row.unexcusedPercent > 0 && <span className="unexcused">{row.unexcusedPercent}% U</span>}
+              </span>
               <span className="fh-lb-percent">{row.percent}%</span>
             </div>
           ))}
@@ -535,6 +558,7 @@ export default function App() {
           {[
             ["upcoming", "Offen"],
             ["week", "Diese Woche"],
+            ["past", "Vergangen"],
             ["all", "Alle"],
             ["exams", "Prüfungen"],
           ].map(([k, label]) => (
@@ -764,7 +788,11 @@ function GlobalStyle() {
       .fh-lb-row.me { background: var(--accent-soft); }
       .fh-lb-rank { width: 22px; text-align: center; font-size: 13px; }
       .fh-lb-name { flex: 1; }
-      .fh-lb-percent { color: var(--muted); font-size: 12.5px; }
+      .fh-lb-breakdown { display: flex; gap: 6px; }
+      .fh-lb-breakdown span { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); }
+      .fh-lb-breakdown .excused { color: #6ea8fe; border-color: #6ea8fe; }
+      .fh-lb-breakdown .unexcused { color: #e5789a; border-color: #e5789a; }
+      .fh-lb-percent { color: var(--muted); font-size: 12.5px; width: 34px; text-align: right; flex-shrink: 0; }
       .fh-course-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
       .fh-course-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
       .fh-course-name { font-size: 12.5px; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
