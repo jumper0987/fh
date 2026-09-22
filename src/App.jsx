@@ -222,6 +222,31 @@ export default function App() {
     [name]
   );
 
+  const bulkSetStatus = useCallback(
+    async (date, newStatus) => {
+      const dayEvents = EVENTS.filter((e) => e.date === date);
+      if (dayEvents.length === 0) return;
+      setStatusMap((prev) => {
+        const next = new Map(prev);
+        for (const e of dayEvents) {
+          if (newStatus) next.set(e.id, newStatus);
+          else next.delete(e.id);
+        }
+        return next;
+      });
+      const rows = dayEvents.map((e) => ({
+        student_name: name,
+        event_id: e.id,
+        done: newStatus === "done",
+        status: newStatus,
+        updated_at: new Date().toISOString(),
+      }));
+      const { error } = await supabase.from(TABLE).upsert(rows, { onConflict: "student_name,event_id" });
+      if (error) console.error("Speichern fehlgeschlagen", error);
+    },
+    [name]
+  );
+
   const openFilePicker = () => fileInputRef.current?.click();
 
   const onAvatarFileChange = async (e) => {
@@ -566,8 +591,24 @@ export default function App() {
 
         {selectedDate && (
           <div className="fh-selected-date-bar">
-            Zeige nur {fmtDate(selectedDate)}
-            <button onClick={() => setSelectedDate(null)}><X size={13} /> zurücksetzen</button>
+            <div className="fh-selected-date-row">
+              <span>Zeige nur {fmtDate(selectedDate)}</span>
+              <button className="fh-selected-date-reset" onClick={() => setSelectedDate(null)}>
+                <X size={13} /> zurücksetzen
+              </button>
+            </div>
+            <div className="fh-selected-date-actions">
+              <span className="fh-quick-label">Ganzer Tag:</span>
+              <button className="fh-quick-btn done" onClick={() => bulkSetStatus(selectedDate, "done")}>
+                <CheckCircle2 size={13} /> Erledigt
+              </button>
+              <button className="fh-quick-btn excused" onClick={() => bulkSetStatus(selectedDate, "absent_excused")}>
+                <ShieldCheck size={13} /> Entschuldigt
+              </button>
+              <button className="fh-quick-btn unexcused" onClick={() => bulkSetStatus(selectedDate, "absent_unexcused")}>
+                <XCircle size={13} /> Unentschuldigt
+              </button>
+            </div>
           </div>
         )}
 
@@ -741,11 +782,23 @@ function GlobalStyle() {
       .fh-cal-legend { display: flex; gap: 14px; margin-top: 8px; font-size: 10.5px; color: var(--muted); }
       .fh-cal-legend span { display: flex; align-items: center; gap: 5px; }
       .fh-selected-date-bar {
-        display: flex; align-items: center; justify-content: space-between; background: var(--accent-soft);
-        border: 1px solid var(--accent); color: var(--accent); border-radius: 8px; padding: 8px 12px;
-        font-size: 12.5px; margin-bottom: 10px;
+        background: var(--panel); border: 1px solid var(--accent); border-radius: 10px;
+        padding: 10px 12px; font-size: 12.5px; margin-bottom: 10px;
       }
-      .fh-selected-date-bar button { background: none; border: none; color: var(--accent); font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+      .fh-selected-date-row { display: flex; align-items: center; justify-content: space-between; color: var(--accent); margin-bottom: 8px; }
+      .fh-selected-date-reset { background: none; border: none; color: var(--accent); font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+      .fh-selected-date-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .fh-quick-label { font-size: 11.5px; color: var(--muted); }
+      .fh-quick-btn {
+        display: flex; align-items: center; gap: 5px; background: var(--panel-2); border: 1px solid var(--line);
+        color: var(--text); border-radius: 999px; padding: 5px 10px; font-size: 11.5px; cursor: pointer;
+      }
+      .fh-quick-btn.done { color: var(--good); }
+      .fh-quick-btn.done:hover { background: rgba(95,209,160,0.15); border-color: var(--good); }
+      .fh-quick-btn.excused { color: #6ea8fe; }
+      .fh-quick-btn.excused:hover { background: rgba(110,168,254,0.15); border-color: #6ea8fe; }
+      .fh-quick-btn.unexcused { color: #e5789a; }
+      .fh-quick-btn.unexcused:hover { background: rgba(229,120,154,0.15); border-color: #e5789a; }
       .fh-date-group { margin-bottom: 14px; }
       .fh-date-header { font-size: 11.5px; color: var(--muted); margin-bottom: 6px; text-transform: capitalize; }
       .fh-item { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; }
